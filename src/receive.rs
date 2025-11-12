@@ -167,14 +167,14 @@ impl AudioFrame {
         }
     }
 
-    pub fn write_as_s16(&self, target: &mut [u8]) -> bool {
+    pub fn write_as_s16(&self, target: &mut [u8], reference_level: i32) -> bool {
         if let Some(parent) = self.parent.upgrade() {
             let mut dst = NDIlib_audio_frame_interleaved_16s_t {
                 sample_rate: 0,
                 no_channels: 0,
                 no_samples: 0,
                 timecode: 0,
-                reference_level: 0,
+                reference_level,
                 p_data: target.as_mut_ptr() as *mut i16,
             };
             unsafe {
