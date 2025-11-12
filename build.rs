@@ -49,7 +49,7 @@ fn main() {
     }
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 fn main() {
     let source_dir = choose_source_dir();
 
