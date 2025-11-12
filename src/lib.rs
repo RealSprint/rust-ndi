@@ -3,7 +3,7 @@ use crate::instance::NDIHandle;
 use std::sync::Arc;
 
 #[allow(non_snake_case, non_camel_case_types, non_upper_case_globals, dead_code, clippy::all)]
-mod sdk;
+pub mod sdk;
 
 pub mod finder;
 mod instance;
@@ -51,5 +51,9 @@ impl NDIInstance {
         clock_audio: bool,
     ) -> Result<SendInstance, SendCreateError> {
         send::create_send_instance(self.handle.clone(), name, clock_video, clock_audio)
+    }
+
+    pub fn handle(&self) -> &NDIHandle {
+        &self.handle
     }
 }
