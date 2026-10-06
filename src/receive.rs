@@ -248,6 +248,15 @@ impl Drop for ReceiveInstance {
         }
     }
 }
+/// Frame counts of a receiver, from `NDIlib_recv_get_performance`.
+#[derive(Debug, Copy, Clone)]
+pub struct ReceivePerformance {
+    /// Frames received.
+    pub total: sdk::NDIlib_recv_performance_t,
+    /// Frames dropped because they were not captured in time.
+    pub dropped: sdk::NDIlib_recv_performance_t,
+}
+
 impl ReceiveInstance {
     pub fn connect(&self, source: Option<&FindSource>) -> bool {
         match source {
@@ -268,18 +277,20 @@ impl ReceiveInstance {
             }
         }
     }
-    /// Frames received and frames dropped since the receiver was created, or `None` when the
-    /// runtime lacks the call.
-    pub fn performance(&self) -> Option<(sdk::NDIlib_recv_performance_t, sdk::NDIlib_recv_performance_t)> {
+    /// Frame counts since the receiver was created, or `None` when the runtime lacks the call.
+    pub fn performance(&self) -> Option<ReceivePerformance> {
         let get = self.sdk_instance.NDIlib_recv_get_performance?;
         let empty = sdk::NDIlib_recv_performance_t {
             video_frames: 0,
             audio_frames: 0,
             metadata_frames: 0,
         };
-        let (mut total, mut dropped) = (empty, empty);
-        unsafe { get(self.instance, &mut total, &mut dropped) };
-        Some((total, dropped))
+        let mut performance = ReceivePerformance {
+            total: empty,
+            dropped: empty,
+        };
+        unsafe { get(self.instance, &mut performance.total, &mut performance.dropped) };
+        Some(performance)
     }
 
     /// Frames waiting in the receive queue, or `None` when the runtime lacks the call.
