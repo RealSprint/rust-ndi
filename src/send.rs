@@ -118,8 +118,14 @@ impl NDISendVideoFrameBuilder {
             res.instance.p_metadata = metadata.as_ptr();
         }
 
-        res.data
-            .resize((res.instance.line_stride_in_bytes * res.instance.yres) as usize, 0);
+        let size = video_data_size(
+            res.instance.FourCC,
+            res.instance.line_stride_in_bytes,
+            res.instance.xres,
+            res.instance.yres,
+        )
+        .ok_or(SendCreateError::InvalidFrame)?;
+        res.data.resize(size, 0);
         res.instance.p_data = res.data.as_mut_ptr();
 
         Ok(res)
@@ -152,6 +158,10 @@ impl NDISendAudioFrameBuilder {
             instance: self.instance,
             data: self.data,
         };
+
+        let size =
+            audio_data_size(res.instance.no_channels, res.instance.no_samples).ok_or(SendCreateError::InvalidFrame)?;
+        res.data.resize(size, 0.0);
         res.instance.p_data = res.data.as_mut_ptr();
         Ok(res)
     }
@@ -208,7 +218,37 @@ pub struct NDISendAudioFrame {
 #[derive(Debug)]
 pub enum SendCreateError {
     InvalidName,
+    /// The frame's stride, dimensions or sample counts do not describe a valid buffer.
+    InvalidFrame,
     Failed,
+}
+
+/// Bytes the SDK reads for a video frame, or `None` for a stride or size it cannot describe.
+fn video_data_size(four_cc: sdk::NDIlib_FourCC_type_e, line_stride: i32, xres: i32, yres: i32) -> Option<usize> {
+    if line_stride <= 0 || xres <= 0 || yres <= 0 {
+        return None;
+    }
+    let (stride, xres, yres) = (line_stride as usize, xres as usize, yres as usize);
+    let luma = stride.checked_mul(yres)?;
+
+    match four_cc {
+        // A second plane at half height: interleaved UV for NV12, or U and V at half stride.
+        sdk::NDIlib_FourCC_type_NV12 | sdk::NDIlib_FourCC_type_I420 | sdk::NDIlib_FourCC_type_YV12 => {
+            luma.checked_add(stride.checked_mul(yres.div_ceil(2))?)
+        }
+        // UYVY followed by an 8-bit alpha plane.
+        sdk::NDIlib_FourCC_type_UYVA => luma.checked_add(xres.checked_mul(yres)?),
+        _ => Some(luma),
+    }
+}
+
+/// Samples the SDK reads for planar float audio, or `None` for counts it cannot describe.
+fn audio_data_size(channels: i32, samples: i32) -> Option<usize> {
+    if channels <= 0 || samples < 0 {
+        return None;
+    }
+
+    (channels as usize).checked_mul(samples as usize)
 }
 
 pub fn create_send_instance(
@@ -246,6 +286,7 @@ mod tests {
     #[test]
     fn video_frame_metadata_points_into_the_frame() {
         let frame = create_ndi_send_video_frame(2, 2, FrameFormatType::Progressive)
+            .with_data(vec![], 4, SendColorFormat::Uyvy)
             .with_metadata("<ndi_test/>".to_string())
             .build()
             .unwrap();
@@ -256,5 +297,44 @@ mod tests {
 
         let moved = Box::new(frame);
         assert_eq!(moved.instance.p_metadata, moved.metadata.as_ref().unwrap().as_ptr());
+    }
+
+    #[test]
+    fn video_buffers_cover_every_plane() {
+        let size = |format: SendColorFormat| video_data_size(format as u32, 1920, 1920, 1080);
+        assert_eq!(size(SendColorFormat::Uyvy), Some(1920 * 1080));
+        assert_eq!(size(SendColorFormat::Nv12), Some(1920 * 1080 * 3 / 2));
+        assert_eq!(size(SendColorFormat::I420), Some(1920 * 1080 * 3 / 2));
+        assert_eq!(size(SendColorFormat::Yv12), Some(1920 * 1080 * 3 / 2));
+        assert_eq!(size(SendColorFormat::Uyva), Some(1920 * 1080 * 2));
+    }
+
+    #[test]
+    fn a_frame_without_a_usable_stride_is_refused() {
+        let build = |stride| {
+            create_ndi_send_video_frame(4, 4, FrameFormatType::Progressive)
+                .with_data(vec![], stride, SendColorFormat::Uyvy)
+                .build()
+        };
+        assert!(matches!(build(0), Err(SendCreateError::InvalidFrame)));
+        assert!(matches!(build(-8), Err(SendCreateError::InvalidFrame)));
+        assert!(create_ndi_send_video_frame(4, 4, FrameFormatType::Progressive)
+            .build()
+            .is_err());
+    }
+
+    #[test]
+    fn short_data_is_padded_to_the_whole_frame() {
+        let video = create_ndi_send_video_frame(4, 4, FrameFormatType::Progressive)
+            .with_data(vec![], 4, SendColorFormat::Nv12)
+            .build()
+            .unwrap();
+        assert_eq!(video.data.len(), 4 * 4 * 3 / 2);
+
+        let audio = create_ndi_send_audio_frame(2, 48_000)
+            .with_data(vec![0.5; 1024], 1024)
+            .build()
+            .unwrap();
+        assert_eq!(audio.data.len(), 2 * 1024);
     }
 }
