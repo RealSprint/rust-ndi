@@ -248,6 +248,15 @@ impl Drop for ReceiveInstance {
         }
     }
 }
+/// Frame counts of a receiver, from `NDIlib_recv_get_performance`.
+#[derive(Debug, Copy, Clone)]
+pub struct ReceivePerformance {
+    /// Frames received.
+    pub total: sdk::NDIlib_recv_performance_t,
+    /// Frames dropped because they were not captured in time.
+    pub dropped: sdk::NDIlib_recv_performance_t,
+}
+
 impl ReceiveInstance {
     pub fn connect(&self, source: Option<&FindSource>) -> bool {
         match source {
@@ -268,6 +277,40 @@ impl ReceiveInstance {
             }
         }
     }
+    /// Frame counts since the receiver was created, or `None` when the runtime lacks the call.
+    pub fn performance(&self) -> Option<ReceivePerformance> {
+        let get = self.sdk_instance.NDIlib_recv_get_performance?;
+        let empty = sdk::NDIlib_recv_performance_t {
+            video_frames: 0,
+            audio_frames: 0,
+            metadata_frames: 0,
+        };
+        let mut performance = ReceivePerformance {
+            total: empty,
+            dropped: empty,
+        };
+        unsafe { get(self.instance, &mut performance.total, &mut performance.dropped) };
+        Some(performance)
+    }
+
+    /// Frames waiting in the receive queue, or `None` when the runtime lacks the call.
+    pub fn queue(&self) -> Option<sdk::NDIlib_recv_queue_t> {
+        let get = self.sdk_instance.NDIlib_recv_get_queue?;
+        let mut queue = sdk::NDIlib_recv_queue_t {
+            video_frames: 0,
+            audio_frames: 0,
+            metadata_frames: 0,
+        };
+        unsafe { get(self.instance, &mut queue) };
+        Some(queue)
+    }
+
+    /// Connections to the source, or `None` when the runtime lacks the call.
+    pub fn connections(&self) -> Option<i32> {
+        let get = self.sdk_instance.NDIlib_recv_get_no_connections?;
+        Some(unsafe { get(self.instance) })
+    }
+
     fn free_video(&self, id: usize) {
         if let Some(frame) = self.video_frames.remove(id) {
             self.free_video_inner(&frame);
