@@ -28,6 +28,9 @@ impl FindInstance {
             let mut source_count = 0;
             // Memory is freed on next call, or destroy
             let sources = self.sdk_instance.NDIlib_find_get_current_sources.unwrap()(self.instance, &mut source_count);
+            if sources.is_null() || source_count == 0 {
+                return Vec::new();
+            }
 
             slice::from_raw_parts(sources, source_count as usize)
                 .iter()

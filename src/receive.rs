@@ -114,6 +114,9 @@ impl VideoFrame {
         if let Ok(locked) = self.instance.lock() {
             unsafe {
                 let len = locked.line_stride_in_bytes * locked.yres;
+                if locked.p_data.is_null() || len <= 0 {
+                    return None;
+                }
                 let data = slice::from_raw_parts(locked.p_data, len as usize);
                 Some(GuardedPointer {
                     _guard: locked,
@@ -156,6 +159,9 @@ impl AudioFrame {
             unsafe {
                 // Divide by four as this is a list of f32
                 let len = locked.channel_stride_in_bytes * locked.no_channels / 4;
+                if locked.p_data.is_null() || len <= 0 {
+                    return None;
+                }
                 let data = slice::from_raw_parts(locked.p_data, len as usize);
                 Some(GuardedPointer {
                     _guard: locked,
