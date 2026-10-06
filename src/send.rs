@@ -104,16 +104,18 @@ impl NDISendVideoFrameBuilder {
     }
     pub fn build(self) -> Result<NDISendVideoFrame, SendCreateError> {
         // TODO - change return error type
+        let metadata = self
+            .metadata
+            .map(|metadata| CString::new(metadata).map_err(|_| SendCreateError::InvalidName))
+            .transpose()?;
         let mut res = NDISendVideoFrame {
             instance: self.instance,
-            metadata: self.metadata,
+            metadata,
             data: self.data,
         };
 
         if let Some(metadata) = &res.metadata {
-            res.instance.p_metadata = CString::new(metadata.as_bytes())
-                .map_err(|_| SendCreateError::InvalidName)?
-                .as_ptr();
+            res.instance.p_metadata = metadata.as_ptr();
         }
 
         res.data
@@ -193,7 +195,8 @@ pub fn create_ndi_send_audio_frame(channel_count: i32, sample_rate: i32) -> NDIS
 
 pub struct NDISendVideoFrame {
     instance: sdk::NDIlib_video_frame_v2_t,
-    metadata: Option<String>,
+    /// Owns the string `instance.p_metadata` points into.
+    metadata: Option<CString>,
     data: Vec<u8>,
 }
 
@@ -233,5 +236,25 @@ pub fn create_send_instance(
             instance,
             in_flight_video: None,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn video_frame_metadata_points_into_the_frame() {
+        let frame = create_ndi_send_video_frame(2, 2, FrameFormatType::Progressive)
+            .with_metadata("<ndi_test/>".to_string())
+            .build()
+            .unwrap();
+
+        let owned = frame.metadata.as_ref().unwrap();
+        assert_eq!(frame.instance.p_metadata, owned.as_ptr());
+        assert_eq!(owned.to_str().unwrap(), "<ndi_test/>");
+
+        let moved = Box::new(frame);
+        assert_eq!(moved.instance.p_metadata, moved.metadata.as_ref().unwrap().as_ptr());
     }
 }
