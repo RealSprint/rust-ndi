@@ -242,16 +242,19 @@ pub fn create_send_instance(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::ffi::CStr;
 
     #[test]
-    fn video_frame_metadata_is_readable_after_build() {
+    fn video_frame_metadata_points_into_the_frame() {
         let frame = create_ndi_send_video_frame(2, 2, FrameFormatType::Progressive)
             .with_metadata("<ndi_test/>".to_string())
             .build()
             .unwrap();
 
-        let metadata = unsafe { CStr::from_ptr(frame.instance.p_metadata) };
-        assert_eq!(metadata.to_str().unwrap(), "<ndi_test/>");
+        let owned = frame.metadata.as_ref().unwrap();
+        assert_eq!(frame.instance.p_metadata, owned.as_ptr());
+        assert_eq!(owned.to_str().unwrap(), "<ndi_test/>");
+
+        let moved = Box::new(frame);
+        assert_eq!(moved.instance.p_metadata, moved.metadata.as_ref().unwrap().as_ptr());
     }
 }
